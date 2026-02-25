@@ -2,13 +2,73 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 from datetime import date
+from pathlib import Path
 
 st.set_page_config(
-    page_title="Relativity • Daily Flash Metrics (Prototype)",
+    page_title="RelativityOne Daily Flash Metric Report",
     page_icon="📈",
     layout="wide",
 )
 
+# ----------------------------
+# Branding / styling
+# ----------------------------
+BRAND_ORANGE = "#EF5F11"
+SIDEBAR_BG = "#FCDFCF"
+
+st.markdown(
+    f"""
+    <style>
+      /* Sidebar background */
+      [data-testid="stSidebar"] {{
+        background-color: {SIDEBAR_BG};
+      }}
+
+      /* Make top-level headers use brand orange */
+      h1, h2, h3 {{
+        color: {BRAND_ORANGE} !important;
+      }}
+
+      /* Slightly punch up metric name text */
+      .metric-name {{
+        font-weight: 800;
+        font-size: 1.05rem;
+        margin-bottom: 0.25rem;
+      }}
+
+      /* Reduce extra top padding a bit */
+      .block-container {{
+        padding-top: 1.1rem;
+      }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+def render_app_header():
+    """Top header with logo + branded title."""
+    logo_path = Path(__file__).parent / "assets" / "relativity-logo.png"
+    c1, c2 = st.columns([1, 14], vertical_alignment="center")
+    with c1:
+        if logo_path.exists():
+            st.image(str(logo_path), width=44)
+        else:
+            # If logo isn't present yet, we just render the title cleanly.
+            st.caption("")
+
+    with c2:
+        st.markdown(
+            f"""
+            <h1 style="margin:0; padding:0; color:{BRAND_ORANGE};">
+              RelativityOne Daily Flash Metric Report
+            </h1>
+            """,
+            unsafe_allow_html=True,
+        )
+
+# ----------------------------
+# Dummy data generation
+# ----------------------------
 @st.cache_data
 def make_dummy_timeseries(days: int = 365, seed: int = 7) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
@@ -45,6 +105,9 @@ def make_dummy_timeseries(days: int = 365, seed: int = 7) -> pd.DataFrame:
 
 DATA = make_dummy_timeseries()
 
+# ----------------------------
+# Product areas & metrics model
+# ----------------------------
 PRODUCT_AREAS = {
     "Adoption & Engagement": {
         "description": "Top-of-funnel usage + recurring engagement signals.",
@@ -121,10 +184,10 @@ PRODUCT_AREAS = {
     },
 }
 
-
+# ----------------------------
+# Helpers
+# ----------------------------
 def resample_for_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
-    if period == "Daily":
-        return df
     if period == "Weekly":
         return df.resample("W").sum(numeric_only=True)
     if period == "Monthly":
@@ -134,11 +197,10 @@ def resample_for_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
     return df
 
 
-def current_and_spark(series: pd.Series, period: str):
-    agg = resample_for_period(series.to_frame(), period)[series.name]
-    current = agg.iloc[-2] if len(agg) >= 2 else agg.iloc[-1]  # last complete bucket if possible
-    spark = agg.tail(12)
-    return current, spark
+def yesterday_value(series: pd.Series):
+    if len(series) < 2:
+        return float(series.iloc[-1])
+    return float(series.iloc[-2])
 
 
 def wow_delta(series: pd.Series):
@@ -152,13 +214,18 @@ def wow_delta(series: pd.Series):
     return delta, pct
 
 
+def spark_for_period(series: pd.Series, period: str):
+    df = resample_for_period(series.to_frame(name="v"), period)
+    return df["v"].tail(12)
+
+
 def metric_tile(metric_name: str, m_cfg: dict, period: str):
     col = m_cfg["col"]
     s = DATA[col].copy()
-    s.name = col
 
-    cur, spark = current_and_spark(s, period)
+    y = yesterday_value(s)
     d, p = wow_delta(s)
+    spark = spark_for_period(s, period)
 
     delta_str = None
     if d is not None:
@@ -168,9 +235,139 @@ def metric_tile(metric_name: str, m_cfg: dict, period: str):
             delta_str = f"{d:+,.0f} WoW ({p:+.1f}%)"
 
     with st.container(border=True):
-        st.caption(metric_name)
-        st.metric("Current", m_cfg["format"].format(cur) + m_cfg.get("unit", ""), delta_str)
+        st.markdown(f"<div class='metric-name'>{metric_name}</div>", unsafe_allow_html=True)
+        st.metric("Yesterday", m_cfg["format"].format(y) + m_cfg.get("unit", ""), delta_str)
         st.line_chart(spark, height=120)
+
+
+# ----------------------------
+# Mock “local dashboards” per product area
+# ----------------------------
+@st.cache_data
+def make_mock_breakdowns(seed: int = 11):
+    rng = np.random.default_rng(seed)
+    segments = ["Enterprise", "Mid-market", "SMB"]
+    regions = ["NA", "EMEA", "APAC", "LATAM"]
+    accounts = ["Acme Co.", "Globex", "Initech", "Umbrella", "Soylent"]
+
+    seg = pd.Series(rng.uniform(0.8, 1.3, len(segments)), index=segments)
+    reg = pd.Series(rng.uniform(0.7, 1.4, len(regions)), index=regions)
+    acc = pd.Series(rng.uniform(0.5, 1.6, len(accounts)), index=accounts).sort_values(ascending=False)
+
+    top_items = pd.DataFrame(
+        {"Item": [f"Item {i}" for i in range(1, 8)],
+         "Count": np.maximum(0, rng.normal(1000, 260, 7)).round().astype(int)}
+    ).sort_values("Count", ascending=False)
+
+    return seg, reg, acc, top_items
+
+
+SEG_W, REG_W, ACC_W, TOP_ITEMS = make_mock_breakdowns()
+
+
+def local_dashboards(area: str, period: str):
+    left, right = st.columns([2, 1], vertical_alignment="top")
+
+    with left:
+        st.subheader("In-app dashboards (mock)")
+
+        if area == "Adoption & Engagement":
+            c1, c2 = st.columns(2)
+            with c1:
+                with st.container(border=True):
+                    st.markdown("**Active users by region (index)**")
+                    st.bar_chart((REG_W * 100).round(0))
+                    st.caption("Illustrative regional mix; not tied to real filters yet.")
+            with c2:
+                with st.container(border=True):
+                    st.markdown("**Engagement depth (7-day rolling)**")
+                    s = DATA["logged_in_users"].rolling(7).mean()
+                    st.line_chart(resample_for_period(s.to_frame("v"), period)["v"], height=220)
+
+        elif area == "Data Movement":
+            c1, c2 = st.columns(2)
+            with c1:
+                with st.container(border=True):
+                    st.markdown("**Import volume vs export volume**")
+                    df = DATA[["data_imported_gb", "data_exported_gb"]].copy()
+                    df = resample_for_period(df, period)
+                    st.line_chart(df, height=220)
+            with c2:
+                with st.container(border=True):
+                    st.markdown("**Top “data movers” (mock accounts)**")
+                    st.bar_chart((ACC_W * 100).round(0).head(5))
+
+        elif area == "Review Experience":
+            with st.container(border=True):
+                st.markdown("**Document views trend**")
+                df = resample_for_period(DATA[["document_views"]], period)
+                st.line_chart(df["document_views"], height=260)
+            with st.container(border=True):
+                st.markdown("**Top workspaces (mock)**")
+                tbl = TOP_ITEMS.rename(columns={"Item": "Workspace"}).copy()
+                st.dataframe(tbl, use_container_width=True, hide_index=True)
+
+        elif area == "Search":
+            c1, c2 = st.columns(2)
+            with c1:
+                with st.container(border=True):
+                    st.markdown("**Search query volume**")
+                    df = resample_for_period(DATA[["search_queries"]], period)
+                    st.line_chart(df["search_queries"], height=220)
+            with c2:
+                with st.container(border=True):
+                    st.markdown("**Top query categories (mock)**")
+                    cats = pd.Series({"People": 1.15, "Concept": 0.95, "Keyword": 1.05, "Filters": 0.88}) * 100
+                    st.bar_chart(cats.round(0))
+
+        elif area == "Coding":
+            c1, c2 = st.columns(2)
+            with c1:
+                with st.container(border=True):
+                    st.markdown("**Manual vs aiR decisions**")
+                    df = DATA[["coding_decisions_manual", "coding_decisions_air"]].copy()
+                    df = resample_for_period(df, period)
+                    st.line_chart(df, height=220)
+            with c2:
+                with st.container(border=True):
+                    st.markdown("**aiR share (mock KPI)**")
+                    air_y = yesterday_value(DATA["coding_decisions_air"])
+                    man_y = yesterday_value(DATA["coding_decisions_manual"])
+                    share = air_y / max(1.0, (air_y + man_y))
+                    st.metric("Yesterday aiR share", f"{share*100:,.1f}%")
+                    st.progress(min(1.0, max(0.0, share)))
+
+        elif area == "Platform Inventory":
+            with st.container(border=True):
+                st.markdown("**Legacy invariant DBs (trend)**")
+                df = resample_for_period(DATA[["legacy_invariant_dbs"]], period)
+                st.line_chart(df["legacy_invariant_dbs"], height=260)
+            with st.container(border=True):
+                st.markdown("**Inventory composition (mock)**")
+                comp = pd.Series({"Invariant": 0.62, "Transient": 0.26, "Other": 0.12}) * 100
+                st.bar_chart(comp.round(0))
+
+        else:  # Processing Pipeline
+            with st.container(border=True):
+                st.markdown("**Throughput by stage**")
+                df = DATA[["processed_stage_ingest_gb", "processed_stage_index_gb", "processed_stage_analytics_gb"]].copy()
+                df = resample_for_period(df, period)
+                st.line_chart(df, height=260)
+            with st.container(border=True):
+                st.markdown("**Bottleneck watch (mock)**")
+                score = min(100, max(0, 55 + np.random.default_rng(3).normal(0, 12)))
+                st.metric("Index stage health score", f"{score:,.0f}/100")
+                st.progress(score / 100)
+
+    with right:
+        st.subheader("External dashboards")
+        st.caption("These are placeholders — swap in real Grafana / Databricks / etc.")
+        for label, url in PRODUCT_AREAS[area].get("dashboards", {}).items():
+            st.link_button(label, url)
+
+        st.divider()
+        st.subheader("Applied filters (dummy)")
+        st.write({"Segment": segment, "Region": region, "Account": account})
 
 
 # ----------------------------
@@ -188,7 +385,6 @@ account = st.sidebar.selectbox("Account", ["All", "Acme Co.", "Globex", "Initech
 st.sidebar.caption(f"Applied: {segment} • {region} • {account}")
 
 st.sidebar.divider()
-
 period = st.sidebar.selectbox("Trend granularity", ["Weekly", "Monthly", "Quarterly"], index=0)
 
 nav = st.sidebar.radio("Navigate", ["Home"] + list(PRODUCT_AREAS.keys()), index=0)
@@ -199,16 +395,14 @@ st.session_state["page"] = nav
 # Pages
 # ----------------------------
 def home_page():
-    st.title("📈 Daily Flash Metrics")
+    render_app_header()
     st.caption("Landing view: high-level trends + key metrics grouped by product area (dummy data).")
 
-    # High-level trend focus (single chart to avoid clutter)
     st.subheader("High-level trend (focus)")
     focus_choices = []
     for area_name, area_cfg in PRODUCT_AREAS.items():
         for m_name, m_cfg in area_cfg["metrics"].items():
             focus_choices.append((f"{area_name} • {m_name}", m_cfg["col"]))
-
     focus_label = st.selectbox("Select a metric", [x[0] for x in focus_choices], index=0)
     focus_col = dict(focus_choices)[focus_label]
     df = resample_for_period(DATA[[focus_col]], period)
@@ -216,7 +410,6 @@ def home_page():
 
     st.divider()
 
-    # Product areas (the ONLY place key metrics appear on landing)
     st.subheader("Product areas")
     for area, cfg in PRODUCT_AREAS.items():
         with st.container(border=True):
@@ -237,34 +430,27 @@ def home_page():
 
 
 def area_page(area: str):
-    cfg = PRODUCT_AREAS[area]
-    st.title(area)
-    st.caption(cfg["description"])
+    render_app_header()
+    st.markdown(f"## {area}")
+    st.caption(PRODUCT_AREAS[area]["description"])
 
-    tabs = st.tabs(["Overview", "Dashboards & links"])
+    tabs = st.tabs(["Overview", "Dashboards"])
 
     with tabs[0]:
-        metric_names = list(cfg["metrics"].keys())
+        metric_names = list(PRODUCT_AREAS[area]["metrics"].keys())
         focus_metric = st.selectbox("Focus metric", metric_names, index=0)
-        focus_col = cfg["metrics"][focus_metric]["col"]
+        focus_col = PRODUCT_AREAS[area]["metrics"][focus_metric]["col"]
         df = resample_for_period(DATA[[focus_col]], period)
         st.line_chart(df[focus_col], height=320)
 
         st.subheader("Key metrics")
         grid = st.columns(3)
-        for i, (m_name, m_cfg) in enumerate(cfg["metrics"].items()):
+        for i, (m_name, m_cfg) in enumerate(PRODUCT_AREAS[area]["metrics"].items()):
             with grid[i % 3]:
                 metric_tile(m_name, m_cfg, period)
 
     with tabs[1]:
-        st.subheader("Drilldown dashboards")
-        st.caption("Replace placeholders with real links (Grafana / Databricks BI Genie / other).")
-        for label, url in cfg.get("dashboards", {}).items():
-            st.link_button(label, url)
-
-        st.divider()
-        st.subheader("Applied filters (dummy)")
-        st.write({"Segment": segment, "Region": region, "Account": account})
+        local_dashboards(area, period)
 
     st.divider()
     if st.button("← Back to Home"):
