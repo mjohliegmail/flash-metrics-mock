@@ -3,18 +3,12 @@ import pandas as pd
 import numpy as np
 from datetime import date
 
-# ----------------------------
-# Page config
-# ----------------------------
 st.set_page_config(
     page_title="Relativity • Daily Flash Metrics (Prototype)",
     page_icon="📈",
     layout="wide",
 )
 
-# ----------------------------
-# Dummy data generation
-# ----------------------------
 @st.cache_data
 def make_dummy_timeseries(days: int = 365, seed: int = 7) -> pd.DataFrame:
     rng = np.random.default_rng(seed)
@@ -51,9 +45,6 @@ def make_dummy_timeseries(days: int = 365, seed: int = 7) -> pd.DataFrame:
 
 DATA = make_dummy_timeseries()
 
-# ----------------------------
-# Product areas & metrics model
-# ----------------------------
 PRODUCT_AREAS = {
     "Adoption & Engagement": {
         "description": "Top-of-funnel usage + recurring engagement signals.",
@@ -130,21 +121,7 @@ PRODUCT_AREAS = {
     },
 }
 
-# Landing headline KPIs (across product areas)
-HEADLINE_METRICS = [
-    ("Logged-in users", "Adoption & Engagement"),
-    ("Data imported", "Data Movement"),
-    ("Data exported", "Data Movement"),
-    ("Document views", "Review Experience"),
-    ("Search queries", "Search"),
-    ("Coding decisions (aiR)", "Coding"),
-    ("Legacy invariant DBs", "Platform Inventory"),
-    ("Processed (Ingest stage)", "Processing Pipeline"),
-]
 
-# ----------------------------
-# Aggregation helpers
-# ----------------------------
 def resample_for_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
     if period == "Daily":
         return df
@@ -159,10 +136,7 @@ def resample_for_period(df: pd.DataFrame, period: str) -> pd.DataFrame:
 
 def current_and_spark(series: pd.Series, period: str):
     agg = resample_for_period(series.to_frame(), period)[series.name]
-    if len(agg) >= 2:
-        current = agg.iloc[-2]  # last complete bucket
-    else:
-        current = agg.iloc[-1]
+    current = agg.iloc[-2] if len(agg) >= 2 else agg.iloc[-1]  # last complete bucket if possible
     spark = agg.tail(12)
     return current, spark
 
@@ -200,7 +174,7 @@ def metric_tile(metric_name: str, m_cfg: dict, period: str):
 
 
 # ----------------------------
-# Sidebar: filters + navigation
+# Sidebar: dummy filters + navigation
 # ----------------------------
 if "page" not in st.session_state:
     st.session_state["page"] = "Home"
@@ -226,19 +200,9 @@ st.session_state["page"] = nav
 # ----------------------------
 def home_page():
     st.title("📈 Daily Flash Metrics")
-    st.caption("Headline KPIs + high-level trends, grouped by product area (dummy data).")
+    st.caption("Landing view: high-level trends + key metrics grouped by product area (dummy data).")
 
-    # --- Headline KPI strip ---
-    st.subheader("Headline metrics")
-    cols = st.columns(4)
-    for i, (metric_name, area) in enumerate(HEADLINE_METRICS):
-        m_cfg = PRODUCT_AREAS[area]["metrics"][metric_name]
-        with cols[i % 4]:
-            metric_tile(metric_name, m_cfg, period)
-
-    st.divider()
-
-    # --- High-level trend focus (single chart to avoid clutter) ---
+    # High-level trend focus (single chart to avoid clutter)
     st.subheader("High-level trend (focus)")
     focus_choices = []
     for area_name, area_cfg in PRODUCT_AREAS.items():
@@ -252,7 +216,7 @@ def home_page():
 
     st.divider()
 
-    # --- Product areas first, then metrics ---
+    # Product areas (the ONLY place key metrics appear on landing)
     st.subheader("Product areas")
     for area, cfg in PRODUCT_AREAS.items():
         with st.container(border=True):
@@ -261,7 +225,7 @@ def home_page():
                 st.markdown(f"**{area}**")
                 st.caption(cfg["description"])
             with header[1]:
-                if st.button("Open", key=f"open_area_{area}"):
+                if st.button("Explore more data", key=f"explore_{area}"):
                     st.session_state["page"] = area
                     st.rerun()
 
@@ -277,7 +241,7 @@ def area_page(area: str):
     st.title(area)
     st.caption(cfg["description"])
 
-    tabs = st.tabs(["Summary", "Dashboards"])
+    tabs = st.tabs(["Overview", "Dashboards & links"])
 
     with tabs[0]:
         metric_names = list(cfg["metrics"].keys())
@@ -308,7 +272,6 @@ def area_page(area: str):
         st.rerun()
 
 
-# Router
 if st.session_state["page"] == "Home":
     home_page()
 else:
