@@ -24,9 +24,22 @@ st.markdown(
         background-color: {SIDEBAR_BG};
       }}
 
-      /* Make top-level headers use brand orange */
+      /* Brand headers */
       h1, h2, h3 {{
         color: {BRAND_ORANGE} !important;
+      }}
+
+      /* Avoid header clipping across browsers/layouts */
+      h1 {{
+        line-height: 1.15 !important;
+        margin-top: 0 !important;
+        padding-top: 0.25rem !important;
+      }}
+
+      /* Give the page enough breathing room so the header doesn't clip */
+      .block-container {{
+        padding-top: 2.2rem;
+        padding-bottom: 2rem;
       }}
 
       /* Slightly punch up metric name text */
@@ -34,11 +47,6 @@ st.markdown(
         font-weight: 800;
         font-size: 1.05rem;
         margin-bottom: 0.25rem;
-      }}
-
-      /* Reduce extra top padding a bit */
-      .block-container {{
-        padding-top: 1.1rem;
       }}
     </style>
     """,
@@ -48,23 +56,32 @@ st.markdown(
 def render_app_header():
     """Top header with logo + branded title."""
     logo_path = Path(__file__).parent / "assets" / "relativity-logo.png"
-    c1, c2 = st.columns([1, 14], vertical_alignment="center")
-    with c1:
-        if logo_path.exists():
-            st.image(str(logo_path), width=44)
-        else:
-            # If logo isn't present yet, we just render the title cleanly.
-            st.caption("")
 
-    with c2:
-        st.markdown(
-            f"""
-            <h1 style="margin:0; padding:0; color:{BRAND_ORANGE};">
-              RelativityOne Daily Flash Metric Report
-            </h1>
-            """,
-            unsafe_allow_html=True,
-        )
+    with st.container():
+        c1, c2 = st.columns([1, 14], vertical_alignment="center")
+        with c1:
+            if logo_path.exists():
+                st.image(str(logo_path), width=44)
+            else:
+                st.write("")
+
+        with c2:
+            st.markdown(
+                f"""
+                <h1 style="
+                    margin:0;
+                    padding:0.25rem 0 0 0;
+                    color:{BRAND_ORANGE};
+                    line-height:1.15;">
+                  RelativityOne Daily Flash Metric Report
+                </h1>
+                """,
+                unsafe_allow_html=True,
+            )
+
+    # small spacer to prevent overlap/clipping in some layouts
+    st.write("")
+
 
 # ----------------------------
 # Dummy data generation
@@ -396,19 +413,7 @@ st.session_state["page"] = nav
 # ----------------------------
 def home_page():
     render_app_header()
-    st.caption("Landing view: high-level trends + key metrics grouped by product area (dummy data).")
-
-    st.subheader("High-level trend (focus)")
-    focus_choices = []
-    for area_name, area_cfg in PRODUCT_AREAS.items():
-        for m_name, m_cfg in area_cfg["metrics"].items():
-            focus_choices.append((f"{area_name} • {m_name}", m_cfg["col"]))
-    focus_label = st.selectbox("Select a metric", [x[0] for x in focus_choices], index=0)
-    focus_col = dict(focus_choices)[focus_label]
-    df = resample_for_period(DATA[[focus_col]], period)
-    st.line_chart(df[focus_col], height=320)
-
-    st.divider()
+    st.caption("Landing view: key metrics grouped by product area (dummy data).")
 
     st.subheader("Product areas")
     for area, cfg in PRODUCT_AREAS.items():
